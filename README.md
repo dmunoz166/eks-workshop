@@ -164,5 +164,44 @@ eksctl completion bash >> ~/.bash_completion
 . ~/.bash_completion
 ```
 
-## Lanzar el cluster
-Debemos crear 
+## Lanzando el cluster
+Debemos crear el archivo de despliegue para crear el cluster de eks de nombre [eksworkshop.yaml](./eksworkshop.yaml)
+
+```bash
+
+```
+Usamos el archivo previamente creado para generar el cluster
+![CreatingEKS](./img/clusterready.png?raw=true)
+```bash
+eksctl create cluster -f eksworkshop.yaml
+```
+> la creaión del cluster toma alrededor de 15 minutos
+
+## Testeando el cluster
+Para confirmar los nodos:
+
+```bash
+kubectl get nodes -A -o wide
+```
+Si vemos nuestros 3 nodos sabremos que nos hemos autenticado correctamente
+![TestingEKS](./img/getno.png?raw=true)
+
+```bash
+STACK_NAME=$(eksctl get nodegroup --cluster eksworkshop-eksctl -o json | jq -r '.[].StackName')
+ROLE_NAME=$(aws cloudformation describe-stack-resources --stack-name $STACK_NAME | jq -r '.StackResources[] | select(.ResourceType=="AWS::IAM::Role") | .PhysicalResourceId')
+echo "export ROLE_NAME=${ROLE_NAME}" | tee -a ~/.bash_profile
+```
+![TestingEKS](./img/eksctlnodeg.png?raw=true)
+```bash
+
+```
+
+```bash
+
+```
+
+```bash
+
+```
+
+
