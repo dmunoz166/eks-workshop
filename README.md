@@ -11,8 +11,9 @@ Ingresar [aquí](https://dashboard.eventengine.run/)
 ## Creando CD9 Workspace
 Lanzar Cloud 9 en la región del laboratorio, en este caso "us-east-1 o North Virginia":
 * Seleccionar **Create a environment**
-* Nombrar el ambiente, y selecionar "t3.small"
+* Nombrar el ambiente "eksworkshop", y selecionar "t3.small" en instance type
 ![Enviroment CD9](./img/eks_cd9.png?raw=true "CD9 Environment")
+*Dejar las demas opciones como estan 
 * Puede cerrar la ventana actual o directamente abrir una nueva terminal:
 ![term CD9](./img/cd9_term.png?raw=true "nueva terminal")
 * Una vez se abra la nueva terminal continuaremos instalando las herramientas necesarias para el laboratorio.
@@ -54,6 +55,7 @@ for command in kubectl jq envsubst aws
     which $command &>/dev/null && echo "$command in path" || echo "$command NOT FOUND"
   done
 ```
+Debe ver que `kubectl in path jq in path envsubst in path aws in path`
 ### Habilitar el autocompletar para kubectl en bash
 ```bash
 kubectl completion bash >>  ~/.bash_completion
@@ -74,14 +76,14 @@ Enter eksworkshop-admin for the Name, and click Create role.
 ### Enlazar el rol al workspace
 * Puede seguir este enlace para [encontrar la instancia de EC2](https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#Instances:tag:Name=aws-cloud*;sort=desc:launchTime)
 * Select the instance, then choose Actions / Instance Settings / Attach/Replace IAM Role c9instancerole
-* Elija el nombre que le asigno a su rol y enlacelo a la ins
+* Elija el nombre que le asigno a su rol y enlacelo a la instancia
 
 ## Actualizar las opciones para el workspace
 * Return to your workspace and click the gear icon (in top right corner), or click to open a new tab and choose “Open Preferences”
 * Select AWS SETTINGS
 * Turn off AWS managed temporary credentials
 * Close the Preferences tab 
-![CD9-IAM](./img/iamcd9.png?raw=true)
+![CD9-IAM](./img/cd9-credenciales.png?raw=true)
 
 - Asegurar que no hayan creadenciales temporales, se eliminara cualquier archivo actual.
 ```bash
@@ -94,6 +96,7 @@ export ACCOUNT_ID=$(aws sts get-caller-identity --output text --query Account)
 export AWS_REGION=$(curl -s 169.254.169.254/latest/dynamic/instance-identity/document | jq -r '.region')
 ```
 #### Validar el rol de IAM 
+Debemos asegurarnos de estas en la región adecuada
 ```bash
 test -n "$AWS_REGION" && echo AWS_REGION is "$AWS_REGION" || echo AWS_REGION is not set
 ```
@@ -107,7 +110,7 @@ aws configure get default.region
 ```bash
 aws sts get-caller-identity --query Arn | grep eksworkshop-admin -q && echo "IAM role valid" || echo "IAM role NOT valid"
 ```
--- En caso de que no funcione el comando verificar que el nombre `eksworkshop-admin` sea el que se creo anteriormente.
+- En caso de que no funcione el comando verificar que el nombre `eksworkshop-admin` sea el que se creo anteriormente.
 
 [x] **NO PROCEDER HASTA QUE SE VALIDE EL ROL DE IAM OBTENIENDO `IAM role valid`**
 
@@ -120,6 +123,7 @@ git clone https://github.com/brentley/ecsdemo-crystal.git
 ```
 
 ## Crear una llave SSH
+lanzar el siguiente comando y oprimir enter para los 3 pasos siguientes
 ```bash
 ssh-keygen
 ```
@@ -134,7 +138,7 @@ If you got an error similar to An error occurred (InvalidKey.Format) when callin
 aws ec2 import-key-pair --key-name "eksworkshop" --public-key-material fileb://~/.ssh/id_rsa.pub
 ```
 ## Crear AWS KMS Custom Managed Key (CMK) 
-Se crea un CMK para el cluster de eks para usarlo al momento de generar secretos
+Se crea un KMS para el cluster de eks para usarlo al momento de generar y encriptar secretos en el cluster
 ```bash
 aws kms create-alias --alias-name alias/eksworkshop --target-key-id $(aws kms create-key --query KeyMetadata.Arn --output text)
 ```
@@ -182,6 +186,8 @@ Para confirmar los nodos:
 
 ```bash
 kubectl get nodes -A -o wide
+kubectl get pods -A -o wide
+kubectl 
 ```
 Si vemos nuestros 3 nodos sabremos que nos hemos autenticado correctamente
 ![TestingEKS](./img/getno.png?raw=true)
@@ -192,16 +198,124 @@ ROLE_NAME=$(aws cloudformation describe-stack-resources --stack-name $STACK_NAME
 echo "export ROLE_NAME=${ROLE_NAME}" | tee -a ~/.bash_profile
 ```
 ![TestingEKS](./img/eksctlnodeg.png?raw=true)
+* Se puede revisar en cualquier instante el rol usando el comando
+```bash
+aws sts get-caller-identity
+```
+## Beginner
+
+```bash
+export DASHBOARD_VERSION="v2.0.0"
+
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/${DASHBOARD_VERSION}/aio/deploy/recommended.yaml
+```
+- lanzamos el dashboard en el puerto 8080 para poder acceder a el de manera rapida desde CD9
+```bash
+kubectl proxy --port=8080 --address=0.0.0.0 --disable-filter=true &
+
+```
+- Ponemos la dirección al final de la URl `/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/` 
+```bash
+aws eks get-token --cluster-name eksworkshop-eksctl | jq -r '.status.token'
+```
+### limpiamos el dashboard
+
+```bash
+# kill proxy
+pkill -f 'kubectl proxy --port=8080'
+
+# delete dashboard
+kubectl delete -f https://raw.githubusercontent.com/kubernetes/dashboard/${DASHBOARD_VERSION}/aio/deploy/recommended.yaml
+
+unset DASHBOARD_VERSION
+```
+## Desplegando Microservicios
+```bash
+cd ecsdemo-nodejs/
+
+kubectl apply -f kubernetes/
+
+kubectl get deploy ecsdemo-nodejs
+
+cd ~/environment/ecsdemo-crystal
+
+kubectl apply -f kubernetes/d
+```
+Revisa si existe el rol o si no lo crea para poder desplegar el alb.
+```bash
+aws iam get-role --role-name "AWSServiceRoleForElasticLoadBalancing" || aws iam create-service-linked-role --aws-service-name "elasticloadbalancing.amazonaws.com"
+
+```
+- Revisar que se implemento de manera automatica un load balancer al definir de esta forma el servicio
+```bash
+kubectl get svc ecsdemo-frontend -o wide
+```
+- Revisar que el ELB esta despeglado
+
+```bash
+ELB=$(kubectl get service ecsdemo-frontend -o json | jq -r '.status.loadBalancer.ingress[].hostname')
+
+curl -m3 -v $ELB
+```
+- Escalar los backend
+```bash
+kubectl get deployments
+kubectl scale deployment ecsdemo-nodejs --replicas=3
+kubectl scale deployment ecsdemo-crystal --replicas=3
+kubectl get deployments
+
+#borrar los deployments
+cd ~/environment/ecsdemo-frontend
+kubectl delete -f kubernetes/service.yaml
+kubectl delete -f kubernetes/deployment.yaml
+
+cd ~/environment/ecsdemo-crystal
+kubectl delete -f kubernetes/service.yaml
+kubectl delete -f kubernetes/deployment.yaml
+
+cd ~/environment/ecsdemo-nodejs
+kubectl delete -f kubernetes/service.yaml
+kubectl delete -f kubernetes/deployment.yaml
+```
+
+## HELM
+Helm is a package manager for Kubernetes that packages multiple Kubernetes resources into a single logical deployment unit called a Chart. Charts are easy to create, version, share, and publish.
+
+Install HELM
 ```bash
 
 ```
 
 ```bash
+```
+
+```bash
+helm completion bash >> ~/.bash_completion
+. /etc/profile.d/bash_completion.sh
+. ~/.bash_completion
+source <(helm completion bash)
 
 ```
 
 ```bash
+```
+## Helth Checks
 
+```bash
 ```
 
+```bash
+```
+- Revisar los logs de un contenedor que ya crasheo
+```bash
+kubectl logs liveness-app --previous
+```
 
+```bash
+```
+
+```bash
+```
+
+```bash
+```
